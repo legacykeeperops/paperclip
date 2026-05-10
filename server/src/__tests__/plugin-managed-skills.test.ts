@@ -174,6 +174,25 @@ describeEmbeddedPostgres("plugin-managed skills", () => {
     expect(reset.skill?.markdown).toContain("key: \"plugin/paperclip-managed-skills-test/wiki-maintainer\"");
   });
 
+  it("does not rewrite managed skill bindings when defaults are unchanged", async () => {
+    const { companyId, services } = await seedCompanyAndPlugin();
+    const created = await services.skills.managedReconcile({ companyId, skillKey: "wiki-maintainer" });
+    expect(created.skillId).toBeTruthy();
+
+    const [binding] = await db.select().from(pluginManagedResources);
+    const oldUpdatedAt = new Date("2026-01-01T00:00:00.000Z");
+    await db
+      .update(pluginManagedResources)
+      .set({ updatedAt: oldUpdatedAt })
+      .where(eq(pluginManagedResources.id, binding.id));
+
+    const reconciled = await services.skills.managedReconcile({ companyId, skillKey: "wiki-maintainer" });
+    const [bindingAfter] = await db.select().from(pluginManagedResources);
+
+    expect(reconciled.status).toBe("resolved");
+    expect(bindingAfter.updatedAt.toISOString()).toBe(oldUpdatedAt.toISOString());
+  });
+
   it("relinks an existing canonical skill without overwriting operator edits", async () => {
     const { companyId, services } = await seedCompanyAndPlugin();
     const created = await services.skills.managedReconcile({ companyId, skillKey: "wiki-maintainer" });

@@ -1275,6 +1275,7 @@ export function createTestHarness(options: TestHarnessOptions): TestHarness {
           } satisfies PluginManagedSkillResolution;
         },
         async reset(skillKey, companyId) {
+          requireCapability(manifest, capabilitySet, "skills.managed");
           const existing = await this.get(skillKey, companyId);
           const declaration = manifest.skills?.find((skill) => skill.skillKey === skillKey);
           if (!declaration) return existing;

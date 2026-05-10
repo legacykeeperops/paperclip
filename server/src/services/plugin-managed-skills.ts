@@ -122,6 +122,17 @@ function buildSkillDefaults(
   };
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function resolution(
   pluginKey: string,
   companyId: string,
@@ -177,6 +188,12 @@ export function pluginManagedSkillService(
     const defaultsJson = buildSkillDefaults(options.pluginKey, declaration);
     const existing = await getBinding(companyId, declaration.skillKey);
     if (existing) {
+      if (
+        existing.resourceId === skillId &&
+        stableJson(existing.defaultsJson) === stableJson(defaultsJson)
+      ) {
+        return existing;
+      }
       return db
         .update(pluginManagedResources)
         .set({
