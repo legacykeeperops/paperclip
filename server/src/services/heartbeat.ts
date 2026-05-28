@@ -1315,6 +1315,7 @@ async function resolveLedgerScopeForRun(
     return {
       issueId: null,
       projectId: contextProjectId,
+      billingCode: null,
     };
   }
 
@@ -1322,6 +1323,7 @@ async function resolveLedgerScopeForRun(
     .select({
       id: issues.id,
       projectId: issues.projectId,
+      billingCode: issues.billingCode,
     })
     .from(issues)
     .where(and(eq(issues.id, contextIssueId), eq(issues.companyId, companyId)))
@@ -1330,6 +1332,7 @@ async function resolveLedgerScopeForRun(
   return {
     issueId: issue?.id ?? null,
     projectId: issue?.projectId ?? contextProjectId,
+    billingCode: issue?.billingCode ?? null,
   };
 }
 
@@ -6672,6 +6675,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         agentId: agent.id,
         issueId: ledgerScope.issueId,
         projectId: ledgerScope.projectId,
+        billingCode: ledgerScope.billingCode,
         provider,
         biller,
         billingType,
