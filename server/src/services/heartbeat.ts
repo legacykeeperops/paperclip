@@ -164,6 +164,7 @@ import { environmentService } from "./environments.js";
 import { environmentRuntimeService } from "./environment-runtime.js";
 import { environmentRunOrchestrator } from "./environment-run-orchestrator.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
+import { checkPrHygiene } from "./pr-hygiene-gate.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
 const MAX_PERSISTED_LOG_CHUNK_CHARS = 64 * 1024;
@@ -6984,6 +6985,63 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     } else {
       delete context.paperclipTaskMarkdown;
     }
+
+    // ── PR Hygiene Pre-flight Gate ──────────────────────────────────────
+    // Mechanical enforcement: before assigning new work, check whether this
+    // agent has open PRs with failing CI or exceeds the 3-PR budget.
+    // See: shared-knowledge/AGENT_ACCOUNTABILITY.md, agent-souls/BUILDER.md
+    if (resolvedWorkspace.repoUrl) {
+      try {
+        const repoMatch = resolvedWorkspace.repoUrl.match(
+          /(?:github\.com)[/:]([^/]+)\/([^/.]+)/,
+        );
+        if (repoMatch) {
+          const [, repoOwner, repoName] = repoMatch;
+          const hygieneResult = await checkPrHygiene(repoOwner, repoName);
+          if (hygieneResult.overrideTaskMarkdown) {
+            context.paperclipTaskMarkdown = hygieneResult.overrideTaskMarkdown;
+            // Clear the normal issue context so the agent focuses solely on PR fixes
+            delete context.paperclipIssue;
+            delete context.paperclipWakeComment;
+            logger.info(
+              {
+                runId: run.id,
+                agentId: agent.id,
+                totalOpenPRs: hygieneResult.totalOpenPRs,
+                failingPRs: hygieneResult.failingPRs.length,
+                reason: hygieneResult.reason,
+              },
+              "pr-hygiene-gate: task overridden — agent must fix PR hygiene before new work",
+            );
+            // Store gate result in context so it can be logged as a run event
+            // after seq/currentRun are initialized downstream.
+            context.paperclipPrHygieneGate = {
+              activated: true,
+              totalOpenPRs: hygieneResult.totalOpenPRs,
+              failingPRs: hygieneResult.failingPRs,
+              reason: hygieneResult.reason,
+            };
+          } else {
+            logger.debug(
+              {
+                runId: run.id,
+                agentId: agent.id,
+                totalOpenPRs: hygieneResult.totalOpenPRs,
+                reason: hygieneResult.reason,
+              },
+              "pr-hygiene-gate: passed",
+            );
+          }
+        }
+      } catch (err) {
+        // Fail open — don't block the agent if the gate itself errors
+        logger.warn(
+          { err, runId: run.id, agentId: agent.id },
+          "pr-hygiene-gate: unexpected error, failing open",
+        );
+      }
+    }
+
     const existingExecutionWorkspace =
       issueRef?.executionWorkspaceId ? await executionWorkspacesSvc.getById(issueRef.executionWorkspaceId) : null;
     const shouldReuseExisting =
